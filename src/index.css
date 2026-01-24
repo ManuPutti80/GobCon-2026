@@ -1,0 +1,9 @@
+@import "tailwindcss";
+
+/* Font e stile base */
+body {
+  font-family: system-ui, -apple-system, sans-serif;
+  background-color: #f9fafb;
+  margin: 0;
+  padding: 0;
+}
