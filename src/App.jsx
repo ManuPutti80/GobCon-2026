@@ -4,7 +4,7 @@ import {
   X, Users, MapPin, LogOut, Trash2, Search, Calendar, 
   HelpCircle, Box, Clock, CheckCircle, MessageCircle, 
   Send, ExternalLink, Filter, Edit, Package, UserPlus, 
-  Lock, Unlock, MessagesSquare, AlertTriangle 
+  Lock, Unlock, MessagesSquare, AlertTriangle, Maximize, Minimize 
 } from 'lucide-react'
 import logoTdG from './assets/logo.png' 
 import { TOP_GAMES } from './assets/gamesList.js'
@@ -34,10 +34,11 @@ function App() {
   const [suggestions, setSuggestions] = useState([])
   const [dynamicTimeOptions, setDynamicTimeOptions] = useState([])
 
-  // Dati Chat
+  // Dati Chat e Fullscreen
   const [currentChatMatch, setCurrentChatMatch] = useState(null)
   const [chatMessages, setChatMessages] = useState([])           
   const [newMessage, setNewMessage] = useState('')               
+  const [isFullscreen, setIsFullscreen] = useState(false)
   const messagesEndRef = useRef(null)                            
 
   // --- LOGICA NOTIFICHE ---
@@ -48,14 +49,10 @@ function App() {
   }
 
   // --- EFFETTI ---
-  
   useEffect(() => {
-    // Caricamento iniziale + Pulizia Chat Vecchie
     fetchMatches().then(() => cleanupExpiredChats());
 
     const globalChannel = supabase.channel('global_events')
-      
-      // A. NUOVI INSERT
       .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'matches' }, (payload) => {
         fetchMatches();
         const newMatch = payload.new;
@@ -63,27 +60,17 @@ function App() {
             let title = "🎲 Nuovo Tavolo";
             if (newMatch.match_type === 'REQUEST') title = "❓ Nuova Richiesta";
             if (newMatch.match_type === 'GENERIC') title = "💬 Nuova Chat Genere";
-            
-            const body = `${newMatch.host_name}: ${newMatch.game_name} (${newMatch.match_time})`;
-            sendBrowserNotification(title, body);
+            sendBrowserNotification(title, `${newMatch.host_name}: ${newMatch.game_name} (${newMatch.match_time})`);
         }
       })
-      
-      // B. UPDATE/DELETE
       .on('postgres_changes', { event: '*', schema: 'public', table: 'matches' }, () => { fetchMatches() })
-
-      // C. MESSAGGI CHAT
       .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'messages' }, async (payload) => {
           const newMsg = payload.new;
           const myName = localStorage.getItem('bg_user');
           if (newMsg.user_name === myName) return;
-
-          // Aggiorna UI se ho quella chat aperta
           if (currentChatMatch && currentChatMatch.id === newMsg.match_id) {
              setChatMessages(prev => [...prev, newMsg]);
           }
-
-          // Notifica se sono iscritto
           const { data: matchData } = await supabase.from('matches').select('players_list, game_name').eq('id', newMsg.match_id).single();
           if (matchData && matchData.players_list.includes(myName)) {
               sendBrowserNotification(`💬 ${matchData.game_name}`, `${newMsg.user_name}: ${newMsg.content}`);
@@ -91,13 +78,18 @@ function App() {
       })
       .subscribe()
 
-    return () => { supabase.removeChannel(globalChannel) }
+    // Ascoltatore per il tasto ESC (se l'utente esce dal fullscreen da tastiera)
+    const handleFullscreenChange = () => setIsFullscreen(!!document.fullscreenElement);
+    document.addEventListener('fullscreenchange', handleFullscreenChange);
+
+    return () => { 
+        supabase.removeChannel(globalChannel);
+        document.removeEventListener('fullscreenchange', handleFullscreenChange);
+    }
   }, [])
 
-  // Scroll Chat
   useEffect(() => { messagesEndRef.current?.scrollIntoView({ behavior: "smooth" }) }, [chatMessages])
 
-  // Autocomplete
   useEffect(() => {
     if (modalMode !== 'GENERIC' && gameName.length > 1) {
         const filtered = TOP_GAMES.filter(g => g.toLowerCase().includes(gameName.toLowerCase()) && g.toLowerCase() !== gameName.toLowerCase()).slice(0, 5);
@@ -105,14 +97,27 @@ function App() {
     } else { setSuggestions([]); }
   }, [gameName, modalMode])
 
-  // --- FUNZIONI UTILI ---
+  // --- FUNZIONI UTILI E FULLSCREEN ---
+
+  const toggleFullscreen = () => {
+      if (!document.fullscreenElement) {
+          document.documentElement.requestFullscreen().catch(err => console.error("Errore Fullscreen:", err));
+      } else {
+          if (document.exitFullscreen) document.exitFullscreen();
+      }
+  }
+
+  const formatDateTime = (dateObj) => {
+      const day = dateObj.toLocaleDateString('it-IT', { weekday: 'short', day: '2-digit' });
+      const time = dateObj.toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit' });
+      return `${day} ${time}`;
+  }
 
   const cleanupExpiredChats = async () => {
       const { data: generics } = await supabase.from('matches').select('*').eq('match_type', 'GENERIC').eq('is_archived', false);
       if (!generics) return;
       const now = new Date();
       const threeHours = 3 * 60 * 60 * 1000;
-
       generics.forEach(async (match) => {
           const lastActive = new Date(match.last_activity || match.created_at);
           if ((now - lastActive) > threeHours) {
@@ -123,13 +128,20 @@ function App() {
 
   const generateTimeOptions = () => {
     const now = new Date(); const options = [];
-    const formatTime = (date) => date.toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit' });
-    options.push({ label: 'Adesso', value: formatTime(now) });
-    options.push({ label: '+15 min', value: formatTime(new Date(now.getTime() + 15 * 60000)) });
-    options.push({ label: '+30 min', value: formatTime(new Date(now.getTime() + 30 * 60000)) });
-    options.push({ label: '+1 ora', value: formatTime(new Date(now.getTime() + 60 * 60000)) });
-    options.push({ label: 'Stasera', value: "Stasera 21:30" });
-    options.push({ label: 'Domani Mat.', value: "Domani 10:00" });
+    options.push({ label: 'Adesso', value: formatDateTime(now) });
+    options.push({ label: '+15 min', value: formatDateTime(new Date(now.getTime() + 15 * 60000)) });
+    options.push({ label: '+30 min', value: formatDateTime(new Date(now.getTime() + 30 * 60000)) });
+    options.push({ label: '+1 ora', value: formatDateTime(new Date(now.getTime() + 60 * 60000)) });
+
+    const tonight = new Date(now); tonight.setHours(21, 30, 0, 0);
+    if (now < tonight) options.push({ label: 'Stasera', value: formatDateTime(tonight) });
+
+    const tomorrowM = new Date(now); tomorrowM.setDate(tomorrowM.getDate() + 1); tomorrowM.setHours(10, 0, 0, 0);
+    options.push({ label: 'Domani Mat.', value: formatDateTime(tomorrowM) });
+
+    const tomorrowP = new Date(now); tomorrowP.setDate(tomorrowP.getDate() + 1); tomorrowP.setHours(15, 0, 0, 0);
+    options.push({ label: 'Domani Pom.', value: formatDateTime(tomorrowP) });
+
     setDynamicTimeOptions(options);
   }
 
@@ -152,12 +164,8 @@ function App() {
 
   // --- UI ACTIONS ---
   const openCreationModal = (mode) => { 
-      setEditingMatch(null); 
-      setModalMode(mode); 
-      setGameName(''); setSuggestions([]); setNotes(''); setTableNr(''); 
-      generateTimeOptions(); 
-      setWhenTime(new Date().toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit' })); 
-      setIsModalOpen(true) 
+      setEditingMatch(null); setModalMode(mode); setGameName(''); setSuggestions([]); setNotes(''); setTableNr(''); 
+      generateTimeOptions(); setWhenTime(formatDateTime(new Date())); setIsModalOpen(true) 
   }
 
   const openEditModal = (match) => { 
@@ -225,7 +233,6 @@ function App() {
       await supabase.from('matches').update({ last_activity: new Date() }).eq('id', currentChatMatch.id);
   }
 
-  // --- FILTRO AVANZATO ---
   const filteredMatches = matches.filter(match => {
     const textOk = match.game_name.toLowerCase().includes(searchTerm.toLowerCase()) || match.host_name.toLowerCase().includes(searchTerm.toLowerCase());
     const myMatchOk = showMyMatchesOnly ? match.players_list?.includes(currentUser) : true;
@@ -252,12 +259,19 @@ function App() {
   return (
     <div className="min-h-screen bg-gray-50 pb-32 font-sans">
       
-      {/* HEADER */}
-      <div className="bg-green-700 text-white p-3 shadow-md sticky top-0 z-20">
-        <div className="max-w-7xl mx-auto flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-            <div className="flex items-center gap-3">
-                <div className="bg-white p-1 rounded-full w-12 h-12 flex items-center justify-center flex-shrink-0 shadow-sm"><img src={logoTdG} alt="TdG" className="w-full h-full object-contain"/></div>
-                <div><h1 className="text-lg font-bold leading-tight">Gob Con Deluxe 2026</h1><div className="flex items-center gap-1 text-green-100 text-[10px] font-medium uppercase tracking-wide"><Calendar size={10}/> Arezzo 27 Feb - 1 Mar</div></div>
+      {/* HEADER RESPONSIVE AGGIORNATO CON BOTTONE FULLSCREEN */}
+      <div className="bg-green-700 text-white p-3 md:p-5 shadow-md sticky top-0 z-20 transition-all duration-300">
+        <div className="max-w-7xl mx-auto flex flex-col sm:flex-row sm:items-center justify-between gap-3 md:gap-6">
+            <div className="flex items-center gap-3 md:gap-5">
+                <div className="bg-white p-1 rounded-full w-12 h-12 md:w-20 md:h-20 flex items-center justify-center flex-shrink-0 shadow-sm transition-all duration-300">
+                    <img src={logoTdG} alt="TdG" className="w-full h-full object-contain"/>
+                </div>
+                <div>
+                    <h1 className="text-lg md:text-3xl font-bold leading-tight transition-all duration-300">Gob Con Deluxe 2026</h1>
+                    <div className="flex items-center gap-1 text-green-100 text-[10px] md:text-sm font-medium uppercase tracking-wide transition-all duration-300">
+                        <Calendar size={12}/> Arezzo, Hotel Etrusco • 27 Feb - 1 Mar
+                    </div>
+                </div>
             </div>
             
             <div className="flex-1 w-full sm:w-auto flex flex-col sm:flex-row gap-2">
@@ -265,10 +279,14 @@ function App() {
                     <input type="text" placeholder="🔎 Cerca..." className="w-full p-2 pl-8 bg-green-800/50 border border-green-600 rounded-lg text-white text-sm outline-none" value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)}/>
                     <Search className="absolute left-2.5 top-2.5 text-green-300" size={14} />
                 </div>
-                <div className="flex bg-green-800/50 p-1 rounded-lg overflow-x-auto no-scrollbar gap-1">
+                <div className="flex bg-green-800/50 p-1 rounded-lg overflow-x-auto no-scrollbar gap-1 items-center">
                     {['ALL', 'OFFER', 'REQUEST', 'GENERIC'].map(t => (
-                        <button key={t} onClick={() => setFilterType(t)} className={`px-3 py-1 rounded text-[10px] font-bold uppercase whitespace-nowrap transition ${filterType === t ? 'bg-white text-green-800 shadow-sm' : 'text-green-200 hover:bg-green-700'}`}>{t === 'ALL' ? 'Tutti' : (t === 'OFFER' ? 'Tavoli' : (t === 'REQUEST' ? 'Richieste' : 'Chat'))}</button>
+                        <button key={t} onClick={() => setFilterType(t)} className={`px-3 py-1.5 rounded text-[10px] font-bold uppercase whitespace-nowrap transition ${filterType === t ? 'bg-white text-green-800 shadow-sm' : 'text-green-200 hover:bg-green-700'}`}>{t === 'ALL' ? 'Tutti' : (t === 'OFFER' ? 'Proposte' : (t === 'REQUEST' ? 'Richieste' : 'Chat'))}</button>
                     ))}
+                    {/* BOTTONE FULLSCREEN (NASCOSTO SU MOBILE) */}
+                    <button onClick={toggleFullscreen} className="hidden md:flex ml-1 p-1.5 bg-green-800/80 hover:bg-green-600 rounded text-green-100 transition" title="Schermo Intero">
+                        {isFullscreen ? <Minimize size={16} /> : <Maximize size={16} />}
+                    </button>
                 </div>
             </div>
         </div>
@@ -292,7 +310,6 @@ function App() {
             if (isRequest) { cardBorder = 'border-l-4 border-l-orange-400'; bgColor = 'bg-orange-50'; }
             if (isGeneric) { cardBorder = 'border-l-4 border-l-purple-500'; bgColor = 'bg-purple-50'; }
             if (isPlaying) { bgColor = 'bg-gray-100 opacity-90'; }
-
             const lastActive = new Date(match.last_activity || match.created_at);
             const isInactive = (new Date() - lastActive) > (2 * 60 * 60 * 1000) && isGeneric; 
 
@@ -312,22 +329,18 @@ function App() {
                     <div className="flex flex-col gap-1 pl-2">
                         {isHost && ( <>
                             <button onClick={() => finishMatch(match.id)} className="text-green-600 bg-green-50 hover:bg-green-100 p-1.5 rounded-lg border border-green-200" title="Archivia"><CheckCircle size={18}/></button>
-                            {/* FIX: AGGIUNTE PARENTESI GRAFFE QUI SOTTO */}
                             {!isGeneric && <button onClick={() => toggleLockMatch(match)} className={`p-1.5 rounded-lg border ${isPlaying ? 'text-red-600 bg-red-50 border-red-200' : 'text-gray-500 bg-gray-50 border-gray-200'}`}>{isPlaying ? <Unlock size={18}/> : <Lock size={18}/>}</button>}
                             <button onClick={() => openEditModal(match)} className="text-blue-600 bg-blue-50 hover:bg-blue-100 p-1.5 rounded-lg border border-blue-200"><Edit size={18}/></button>
                         </> )}
                     </div>
                 </div>
-
                 {!isGeneric && (
                     <div className="flex gap-2 text-xs text-gray-600">
                         <span className="flex items-center gap-1 bg-white border border-gray-200 px-2 py-1 rounded-md shadow-sm"><Users size={12}/> {match.current_players}/{match.max_players}</span>
                         <span className="flex items-center gap-1 bg-white border border-gray-200 px-2 py-1 rounded-md shadow-sm"><MapPin size={12}/> {match.table_name}</span>
                     </div>
                 )}
-                
                 <div className="flex flex-wrap gap-1 mt-1">{match.players_list?.map((p, i) => (<span key={i} className={`px-2 py-0.5 rounded text-[10px] border bg-white border-gray-200 text-gray-600`}>{p}</span>))}</div>
-                
                 <div className="mt-auto pt-2 flex gap-2">
                     <div className="flex-1">
                         {amIIn ? ( <button onClick={()=>leaveMatch(match)} className="w-full py-2.5 bg-white border border-red-200 text-red-600 font-bold rounded-lg text-xs hover:bg-red-50 flex justify-center gap-2 items-center"><LogOut size={14}/> {isGeneric ? 'Esci' : 'Lascia'}</button>
