@@ -203,6 +203,7 @@ export const TOP_GAMES = [
   "Keyflower",
   "Kill the Unicorns",
   "King of Tokyo",
+  "King's Dilemma",
   "Kingdom Death: Monster",
   "Kingdomino",
   "Lama",
@@ -364,23 +365,24 @@ export const TOP_GAMES = [
   "Antiquity",
   "Roads & Boats",
   "1830: Railways & Robber Barons",
-  "High Frontier 4 All"
+  "High Frontier 4 All",
+
   // --- 🌍 MANCAVANO DALLA TOP 300 BGG ---
-  "Anachrony",             // Un gigante Mindclash che mancava!
+  "Anachrony",
   "Babylonia",
   "Clank! Legacy: Acquisitions Incorporated",
-  "El Grande",             // Il papà dei controlli area
+  "El Grande",
   "Endless Winter: Paleoamericans",
   "Ethnos",
   "Ezra and Nehemiah",
-  "Fields of Arle",        // Uwe Rosenberg da 2 giocatori
+  "Fields of Arle",
   "Five Tribes",
   "Goa",
   "Iki",
   "Istanbul",
   "Lord of the Rings: Journeys in Middle-Earth",
   "Madeira",
-  "Marrakesh",             // La versione Feld City Collection
+  "Marrakesh",
   "MicroMacro: Crime City",
   "My City",
   "Nippon",
@@ -389,7 +391,7 @@ export const TOP_GAMES = [
   "Pandemic Legacy: Season 2",
   "Pandemic Legacy: Season 0",
   "Quest for El Dorado",
-  "Ra",                    // Knizia classico
+  "Ra",
   "Roll Player",
   "Saint Petersburg",
   "Samurai",
@@ -400,12 +402,13 @@ export const TOP_GAMES = [
   "Tainted Grail: The Fall of Avalon",
   "The 7th Continent",
   "The Search for Planet X",
-  "Trajan",                // Feld classico
-  "Undaunted: Normandy",   // Manca, hai solo il Battle of Britain
+  "Trajan",
+  "Undaunted: Normandy",
   "Undaunted: North Africa",
-  "Vinhos Deluxe Edition", // Lacerda
-  "Watergate",             // 2 giocatori top
-  "Zhanguo: The First Empire"
+  "Vinhos Deluxe Edition",
+  "Watergate",
+  "Zhanguo: The First Empire",
+
   // --- ⚔️ WARGAMES & STORICI (Top BGG Wargames) ---
   "Sekigahara: The Unification of Japan",
   "Hannibal & Hamilcar",
@@ -421,25 +424,24 @@ export const TOP_GAMES = [
   "Labyrinth: The War on Terror",
   "Washington's War",
   "For the People",
-  "Fire in the Lake",       // Serie COIN mancante
-  "Cuba Libre",             // Serie COIN (il più giocato)
-  "A Distant Plain",        // Serie COIN
-  "Undauted: Stalingrad",   // Il legacy
+  "Fire in the Lake",
+  "Cuba Libre",
+  "A Distant Plain",
+  "Undauted: Stalingrad",
 
   // --- 🧠 ASTRATTI, PUZZLE & 2 GIOCATORI (Top BGG Abstract) ---
   "Calico",
-  "War Chest",              // Capolavoro per 2/4 giocatori
-  "YINSH",                  // Progetto GIPF
+  "War Chest",
+  "YINSH",
   "Tak",
   "Onitama",
   "Nova Luna",
   "Mandala",
   "Renature",
   "Reef",
-  "Babylonia",
-  "Blue Lagoon",            // Knizia veloce
-  "Through the Desert",     // Knizia classico
-  "Battle Line",            // Knizia 2 giocatori
+  "Blue Lagoon",
+  "Through the Desert",
+  "Battle Line",
 
   // --- 🐈 FAMILY PLUS & BEI TAVOLI (Top BGG Family) ---
   "The Isle of Cats",
@@ -448,15 +450,14 @@ export const TOP_GAMES = [
   "Bärenpark",
   "Parks",
   "Canvas",
-  "Downforce",              // Corse macchine caciarone
-  "Flamme Rouge",           // Corse bici
+  "Downforce",
+  "Flamme Rouge",
   "Jamaica",
   "Survive: Escape from Atlantis!",
   "Sheriff of Nottingham",
   "Dice Forge",
-  "Potion Explosion",       // Orgoglio italiano
+  "Potion Explosion",
   "Gizmos",
-  "Ethnos",
   "Kingdom Builder",
 
   // --- 🧟 AMERITRASH CULT & NARRATIVI (Top BGG Thematic) ---
@@ -464,19 +465,17 @@ export const TOP_GAMES = [
   "Mice and Mystics",
   "Stuffed Fables (Fiabe di Stoffa)",
   "Marvel United",
-  "Unfathomable",           // L'erede di Battlestar Galactica
-  "King's Dilemma",
+  "Unfathomable",
   "Western Legends",
-  "Xia: Legends of a Drift System",
   "Merchants & Marauders",
   "Star Wars: Outer Rim",
   "Destinies",
   "T.I.M.E Stories",
 
-  // --- 🚂 18XX & ECONOMIC HEAVY (Per completare 1830) ---
+  // --- 🚂 18XX & ECONOMIC HEAVY ---
   "1846: The Race for the Midwest",
   "1862: Railway Mania in the Eastern Counties",
   "18Chesapeake",
   "Container",
-  "Imperial"                // Versione originale (hai il 2030)
+  "Imperial"
 ].sort();
