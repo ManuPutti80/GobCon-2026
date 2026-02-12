@@ -48,11 +48,15 @@ function App() {
       }
   }
 
-  // --- EFFETTI ---
+ // --- EFFETTI ---
+  
+  // 1. CARICAMENTO DATI E NOTIFICHE GLOBALI
   useEffect(() => {
     fetchMatches().then(() => cleanupExpiredChats());
 
     const globalChannel = supabase.channel('global_events')
+      
+      // A. NUOVI TAVOLI (Notifica Tutti)
       .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'matches' }, (payload) => {
         fetchMatches();
         const newMatch = payload.new;
@@ -60,36 +64,72 @@ function App() {
             let title = "🎲 Nuovo Tavolo";
             if (newMatch.match_type === 'REQUEST') title = "❓ Nuova Richiesta";
             if (newMatch.match_type === 'GENERIC') title = "💬 Nuova Chat Genere";
-            sendBrowserNotification(title, `${newMatch.host_name}: ${newMatch.game_name} (${newMatch.match_time})`);
+            
+            const body = `${newMatch.host_name}: ${newMatch.game_name} (${newMatch.match_time})`;
+            sendBrowserNotification(title, body);
         }
       })
+      
+      // B. AGGIORNAMENTI LISTA
       .on('postgres_changes', { event: '*', schema: 'public', table: 'matches' }, () => { fetchMatches() })
+
+      // C. NOTIFICHE MESSAGGI (Solo Notifica, NO UI)
       .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'messages' }, async (payload) => {
           const newMsg = payload.new;
           const myName = localStorage.getItem('bg_user');
+          
+          // Se sono io non notifico
           if (newMsg.user_name === myName) return;
-          if (currentChatMatch && currentChatMatch.id === newMsg.match_id) {
-             setChatMessages(prev => [...prev, newMsg]);
-          }
+
+          // Recupera info tavolo per la notifica
           const { data: matchData } = await supabase.from('matches').select('players_list, game_name').eq('id', newMsg.match_id).single();
+          
+          // Se sono iscritto, mando notifica BROWSER
           if (matchData && matchData.players_list.includes(myName)) {
               sendBrowserNotification(`💬 ${matchData.game_name}`, `${newMsg.user_name}: ${newMsg.content}`);
           }
       })
       .subscribe()
 
-    // Ascoltatore per il tasto ESC (se l'utente esce dal fullscreen da tastiera)
-    const handleFullscreenChange = () => setIsFullscreen(!!document.fullscreenElement);
-    document.addEventListener('fullscreenchange', handleFullscreenChange);
-
-    return () => { 
-        supabase.removeChannel(globalChannel);
-        document.removeEventListener('fullscreenchange', handleFullscreenChange);
-    }
+    return () => { supabase.removeChannel(globalChannel) }
   }, [])
 
-  useEffect(() => { messagesEndRef.current?.scrollIntoView({ behavior: "smooth" }) }, [chatMessages])
+  // 2. GESTIONE CHAT APERTA (UI REALTIME)
+  // Questo useEffect si riavvia ogni volta che cambia 'currentChatMatch'
+  useEffect(() => {
+    let chatChannel = null;
 
+    if (isChatOpen && currentChatMatch) {
+        // 1. Carica i messaggi storici
+        fetchMessages(currentChatMatch.id);
+
+        // 2. Ascolta i NUOVI messaggi per QUESTO tavolo
+        chatChannel = supabase
+            .channel(`chat_${currentChatMatch.id}`)
+            .on('postgres_changes', { 
+                event: 'INSERT', 
+                schema: 'public', 
+                table: 'messages',
+                filter: `match_id=eq.${currentChatMatch.id}` // Filtra solo questo tavolo
+            }, (payload) => {
+                // Aggiungi il messaggio alla lista visibile
+                setChatMessages((prev) => [...prev, payload.new]);
+            })
+            .subscribe();
+    }
+
+    // Pulizia quando chiudo la chat o cambio tavolo
+    return () => { 
+        if (chatChannel) supabase.removeChannel(chatChannel);
+    }
+  }, [isChatOpen, currentChatMatch]) // IMPORTANTE: Dipendenze corrette
+
+  // 3. AUTO SCROLL
+  useEffect(() => { 
+      messagesEndRef.current?.scrollIntoView({ behavior: "smooth" }) 
+  }, [chatMessages])
+
+  // 4. AUTOCOMPLETE
   useEffect(() => {
     if (modalMode !== 'GENERIC' && gameName.length > 1) {
         const filtered = TOP_GAMES.filter(g => g.toLowerCase().includes(gameName.toLowerCase()) && g.toLowerCase() !== gameName.toLowerCase()).slice(0, 5);
@@ -251,7 +291,7 @@ function App() {
           <h1 className="text-2xl font-bold mb-2 text-gray-800">Gob Con Deluxe 2026</h1>
           <p className="text-gray-500 mb-6 text-sm">Entra con il tuo Nickname</p>
           <input name="username" type="text" placeholder="Nickname" className="w-full p-4 bg-gray-100 rounded-xl mb-4 text-center text-lg outline-none focus:ring-2 focus:ring-green-500" required />
-          <button className="w-full bg-green-700 text-white font-bold py-4 rounded-xl shadow-lg hover:bg-green-800 transition">Entra Beta</button>
+          <button className="w-full bg-green-700 text-white font-bold py-4 rounded-xl shadow-lg hover:bg-green-800 transition">Entra nella Gob Con App</button>
         </form>
       </div>
   )
