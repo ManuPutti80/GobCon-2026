@@ -20,7 +20,7 @@ function App() {
   const [modalMode, setModalMode] = useState('OFFER') 
   const [editingMatch, setEditingMatch] = useState(null)
 
-  // Filtri Avanzati
+  // Filtri
   const [searchTerm, setSearchTerm] = useState('')
   const [showMyMatchesOnly, setShowMyMatchesOnly] = useState(false)
   const [filterType, setFilterType] = useState('ALL') 
@@ -31,10 +31,13 @@ function App() {
   const [maxPlayers, setMaxPlayers] = useState(4)
   const [notes, setNotes] = useState('')
   const [whenTime, setWhenTime] = useState('')
+  // NUOVO: Stato per memorizzare la data reale di inizio (per l'ordinamento)
+  const [targetSortDate, setTargetSortDate] = useState(null) 
+  
   const [suggestions, setSuggestions] = useState([])
   const [dynamicTimeOptions, setDynamicTimeOptions] = useState([])
 
-  // Dati Chat e Fullscreen
+  // Chat & UI
   const [currentChatMatch, setCurrentChatMatch] = useState(null)
   const [chatMessages, setChatMessages] = useState([])           
   const [newMessage, setNewMessage] = useState('')               
@@ -48,88 +51,61 @@ function App() {
       }
   }
 
- // --- EFFETTI ---
+  // --- EFFETTI ---
   
-  // 1. CARICAMENTO DATI E NOTIFICHE GLOBALI
+  // 1. CARICAMENTO E NOTIFICHE
   useEffect(() => {
     fetchMatches().then(() => cleanupExpiredChats());
 
     const globalChannel = supabase.channel('global_events')
-      
-      // A. NUOVI TAVOLI (Notifica Tutti)
+      // A. NUOVI TAVOLI
       .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'matches' }, (payload) => {
-        fetchMatches();
+        fetchMatches(); // Ricarica per riordinare
         const newMatch = payload.new;
         if (newMatch.host_name !== localStorage.getItem('bg_user')) {
             let title = "🎲 Nuovo Tavolo";
             if (newMatch.match_type === 'REQUEST') title = "❓ Nuova Richiesta";
             if (newMatch.match_type === 'GENERIC') title = "💬 Nuova Chat Genere";
-            
-            const body = `${newMatch.host_name}: ${newMatch.game_name} (${newMatch.match_time})`;
-            sendBrowserNotification(title, body);
+            sendBrowserNotification(title, `${newMatch.host_name}: ${newMatch.game_name} (${newMatch.match_time})`);
         }
       })
-      
-      // B. AGGIORNAMENTI LISTA
+      // B. UPDATE/DELETE
       .on('postgres_changes', { event: '*', schema: 'public', table: 'matches' }, () => { fetchMatches() })
-
-      // C. NOTIFICHE MESSAGGI (Solo Notifica, NO UI)
+      // C. CHAT
       .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'messages' }, async (payload) => {
           const newMsg = payload.new;
           const myName = localStorage.getItem('bg_user');
-          
-          // Se sono io non notifico
           if (newMsg.user_name === myName) return;
-
-          // Recupera info tavolo per la notifica
           const { data: matchData } = await supabase.from('matches').select('players_list, game_name').eq('id', newMsg.match_id).single();
-          
-          // Se sono iscritto, mando notifica BROWSER
           if (matchData && matchData.players_list.includes(myName)) {
               sendBrowserNotification(`💬 ${matchData.game_name}`, `${newMsg.user_name}: ${newMsg.content}`);
           }
       })
       .subscribe()
 
-    return () => { supabase.removeChannel(globalChannel) }
+    const handleFullscreenChange = () => setIsFullscreen(!!document.fullscreenElement);
+    document.addEventListener('fullscreenchange', handleFullscreenChange);
+    return () => { 
+        supabase.removeChannel(globalChannel);
+        document.removeEventListener('fullscreenchange', handleFullscreenChange);
+    }
   }, [])
 
-  // 2. GESTIONE CHAT APERTA (UI REALTIME)
-  // Questo useEffect si riavvia ogni volta che cambia 'currentChatMatch'
+  // 2. CHAT LOCALE
   useEffect(() => {
     let chatChannel = null;
-
     if (isChatOpen && currentChatMatch) {
-        // 1. Carica i messaggi storici
         fetchMessages(currentChatMatch.id);
-
-        // 2. Ascolta i NUOVI messaggi per QUESTO tavolo
-        chatChannel = supabase
-            .channel(`chat_${currentChatMatch.id}`)
-            .on('postgres_changes', { 
-                event: 'INSERT', 
-                schema: 'public', 
-                table: 'messages',
-                filter: `match_id=eq.${currentChatMatch.id}` // Filtra solo questo tavolo
-            }, (payload) => {
-                // Aggiungi il messaggio alla lista visibile
-                setChatMessages((prev) => [...prev, payload.new]);
-            })
+        chatChannel = supabase.channel(`chat_${currentChatMatch.id}`)
+            .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'messages', filter: `match_id=eq.${currentChatMatch.id}` }, 
+            (payload) => setChatMessages((prev) => [...prev, payload.new]))
             .subscribe();
     }
+    return () => { if (chatChannel) supabase.removeChannel(chatChannel); }
+  }, [isChatOpen, currentChatMatch])
 
-    // Pulizia quando chiudo la chat o cambio tavolo
-    return () => { 
-        if (chatChannel) supabase.removeChannel(chatChannel);
-    }
-  }, [isChatOpen, currentChatMatch]) // IMPORTANTE: Dipendenze corrette
+  useEffect(() => { messagesEndRef.current?.scrollIntoView({ behavior: "smooth" }) }, [chatMessages])
 
-  // 3. AUTO SCROLL
-  useEffect(() => { 
-      messagesEndRef.current?.scrollIntoView({ behavior: "smooth" }) 
-  }, [chatMessages])
-
-  // 4. AUTOCOMPLETE
   useEffect(() => {
     if (modalMode !== 'GENERIC' && gameName.length > 1) {
         const filtered = TOP_GAMES.filter(g => g.toLowerCase().includes(gameName.toLowerCase()) && g.toLowerCase() !== gameName.toLowerCase()).slice(0, 5);
@@ -137,11 +113,11 @@ function App() {
     } else { setSuggestions([]); }
   }, [gameName, modalMode])
 
-  // --- FUNZIONI UTILI E FULLSCREEN ---
+  // --- FUNZIONI UTILI ---
 
   const toggleFullscreen = () => {
       if (!document.fullscreenElement) {
-          document.documentElement.requestFullscreen().catch(err => console.error("Errore Fullscreen:", err));
+          document.documentElement.requestFullscreen().catch(err => console.error(err));
       } else {
           if (document.exitFullscreen) document.exitFullscreen();
       }
@@ -166,29 +142,49 @@ function App() {
       });
   }
 
+  // NUOVA GENERAZIONE ORARI (Con Data Reale per Sorting)
   const generateTimeOptions = () => {
-    const now = new Date(); const options = [];
-    options.push({ label: 'Adesso', value: formatDateTime(now) });
-    options.push({ label: '+15 min', value: formatDateTime(new Date(now.getTime() + 15 * 60000)) });
-    options.push({ label: '+30 min', value: formatDateTime(new Date(now.getTime() + 30 * 60000)) });
-    options.push({ label: '+1 ora', value: formatDateTime(new Date(now.getTime() + 60 * 60000)) });
+    const now = new Date(); 
+    const options = [];
+    
+    // Helper per creare opzione con Label e Data Reale
+    const addOpt = (labelBase, dateObj) => {
+        options.push({ 
+            label: labelBase, 
+            valueText: formatDateTime(dateObj), 
+            realDate: dateObj 
+        });
+    };
+
+    addOpt('Adesso', now);
+    addOpt('+15 min', new Date(now.getTime() + 15 * 60000));
+    addOpt('+30 min', new Date(now.getTime() + 30 * 60000));
+    addOpt('+1 ora', new Date(now.getTime() + 60 * 60000));
 
     const tonight = new Date(now); tonight.setHours(21, 30, 0, 0);
-    if (now < tonight) options.push({ label: 'Stasera', value: formatDateTime(tonight) });
+    if (now < tonight) addOpt('Stasera', tonight);
 
     const tomorrowM = new Date(now); tomorrowM.setDate(tomorrowM.getDate() + 1); tomorrowM.setHours(10, 0, 0, 0);
-    options.push({ label: 'Domani Mat.', value: formatDateTime(tomorrowM) });
+    addOpt('Domani Mat.', tomorrowM);
 
     const tomorrowP = new Date(now); tomorrowP.setDate(tomorrowP.getDate() + 1); tomorrowP.setHours(15, 0, 0, 0);
-    options.push({ label: 'Domani Pom.', value: formatDateTime(tomorrowP) });
+    addOpt('Domani Pom.', tomorrowP);
 
     setDynamicTimeOptions(options);
   }
 
   const selectSuggestion = (name) => { setGameName(name); setSuggestions([]); }
 
+  // NUOVA FETCH: ORDINAMENTO PER START TIMESTAMP (ASCENDENTE)
   const fetchMatches = async () => {
-    const { data, error } = await supabase.from('matches').select('*').eq('is_archived', false).order('last_activity', { ascending: false })
+    // Ordina per start_timestamp ASC (dal più vicino nel tempo al più lontano)
+    // Se start_timestamp è null (vecchi record), fallback su created_at
+    const { data, error } = await supabase
+        .from('matches')
+        .select('*')
+        .eq('is_archived', false)
+        .order('start_timestamp', { ascending: true }) 
+        
     if (!error) setMatches(data)
   }
 
@@ -197,25 +193,38 @@ function App() {
       if (!error) setChatMessages(data) 
   }
 
-  const handleLogin = async (e) => {
+  const handleLogin = (e) => {
     e.preventDefault(); const name = e.target.username.value.trim();
-    if (name) { localStorage.setItem('bg_user', name); setCurrentUser(name); if ("Notification" in window && Notification.permission !== "granted") { await Notification.requestPermission(); } }
+    if (name) { localStorage.setItem('bg_user', name); setCurrentUser(name); if ("Notification" in window && Notification.permission !== "granted") { Notification.requestPermission(); } }
   }
 
   // --- UI ACTIONS ---
   const openCreationModal = (mode) => { 
       setEditingMatch(null); setModalMode(mode); setGameName(''); setSuggestions([]); setNotes(''); setTableNr(''); 
-      generateTimeOptions(); setWhenTime(formatDateTime(new Date())); setIsModalOpen(true) 
+      generateTimeOptions(); 
+      const now = new Date();
+      setWhenTime(formatDateTime(now)); 
+      setTargetSortDate(now); // Default: Adesso
+      setIsModalOpen(true) 
   }
 
   const openEditModal = (match) => { 
       setEditingMatch(match); setModalMode(match.match_type); setGameName(match.game_name); 
       setTableNr(match.table_name.startsWith("Tavolo ") ? match.table_name.replace("Tavolo ", "") : ""); 
-      setMaxPlayers(match.max_players); setNotes(match.bgg_id || ""); setWhenTime(match.match_time); 
-      generateTimeOptions(); setIsModalOpen(true) 
+      setMaxPlayers(match.max_players); setNotes(match.bgg_id || ""); 
+      setWhenTime(match.match_time); 
+      // Non cambiamo la data di sort in edit se non la tocca, ma rigeneriamo le opzioni
+      generateTimeOptions(); 
+      setIsModalOpen(true) 
   }
 
   const openChat = (match) => { setCurrentChatMatch(match); setChatMessages([]); setIsChatOpen(true) }
+
+  // Funzione per impostare orario da bottoni
+  const handleTimeSelect = (opt) => {
+      setWhenTime(opt.valueText);
+      setTargetSortDate(opt.realDate);
+  }
 
   // --- DB ACTIONS ---
   const saveMatch = async () => {
@@ -225,13 +234,21 @@ function App() {
     if (modalMode === 'REQUEST') finalTableName = 'CERCASI'; 
     if (modalMode === 'GENERIC') finalTableName = 'CHAT';
 
+    // Se l'utente ha scritto a mano l'orario e non abbiamo una data target valida, usiamo "Adesso" come fallback per l'ordinamento
+    const sortDate = targetSortDate || new Date();
+
     const payload = { 
         game_name: gameName, host_name: currentUser, table_name: finalTableName, 
         max_players: maxPlayers, bgg_id: notes || null, match_type: modalMode, 
-        match_time: whenTime, last_activity: new Date() 
+        match_time: whenTime, 
+        start_timestamp: sortDate, // Salviamo la data per l'ordinamento
+        last_activity: new Date() 
     };
 
     if (editingMatch) {
+        // In edit, se non ha toccato i bottoni orario, manteniamo il vecchio start_timestamp o aggiorniamo se ha cambiato
+        // Per semplicità, se edita aggiorniamo start_timestamp solo se ha cliccato un bottone, altrimenti lasciamo quello che c'era?
+        // Facciamo che aggiorna tutto per coerenza.
         const { error } = await supabase.from('matches').update(payload).eq('id', editingMatch.id)
         if (!error) { setIsModalOpen(false); setEditingMatch(null); } else { alert("Errore modifica"); }
     } else {
@@ -250,9 +267,7 @@ function App() {
     if (match.players_list?.includes(currentUser)) return
     const newPlayers = [...(match.players_list || []), currentUser]
     const newCount = (match.current_players || 0) + 1
-    
     await supabase.from('matches').update({ players_list: newPlayers, current_players: newCount, status: newCount >= match.max_players ? 'FULL' : 'OPEN', last_activity: new Date() }).eq('id', match.id)
-
     if (hasGame) await supabase.from('messages').insert([{ match_id: match.id, user_name: 'SISTEMA', content: `📦 ${currentUser} ha portato la scatola!` }])
   }
 
@@ -270,6 +285,7 @@ function App() {
       if (!newMessage.trim()) return; 
       const text = newMessage.trim(); setNewMessage(''); 
       await supabase.from('messages').insert([{ match_id: currentChatMatch.id, user_name: currentUser, content: text }]);
+      // Nota: Non aggiorniamo start_timestamp quando si chatta, solo last_activity (per il timeout)
       await supabase.from('matches').update({ last_activity: new Date() }).eq('id', currentChatMatch.id);
   }
 
@@ -291,15 +307,13 @@ function App() {
           <h1 className="text-2xl font-bold mb-2 text-gray-800">Gob Con Deluxe 2026</h1>
           <p className="text-gray-500 mb-6 text-sm">Entra con il tuo Nickname</p>
           <input name="username" type="text" placeholder="Nickname" className="w-full p-4 bg-gray-100 rounded-xl mb-4 text-center text-lg outline-none focus:ring-2 focus:ring-green-500" required />
-          <button className="w-full bg-green-700 text-white font-bold py-4 rounded-xl shadow-lg hover:bg-green-800 transition">Entra nella Gob Con App</button>
+          <button className="w-full bg-green-700 text-white font-bold py-4 rounded-xl shadow-lg hover:bg-green-800 transition">Entra Beta</button>
         </form>
       </div>
   )
 
   return (
     <div className="min-h-screen bg-gray-50 pb-32 font-sans">
-      
-      {/* HEADER RESPONSIVE AGGIORNATO CON BOTTONE FULLSCREEN */}
       <div className="bg-green-700 text-white p-3 md:p-5 shadow-md sticky top-0 z-20 transition-all duration-300">
         <div className="max-w-7xl mx-auto flex flex-col sm:flex-row sm:items-center justify-between gap-3 md:gap-6">
             <div className="flex items-center gap-3 md:gap-5">
@@ -323,7 +337,6 @@ function App() {
                     {['ALL', 'OFFER', 'REQUEST', 'GENERIC'].map(t => (
                         <button key={t} onClick={() => setFilterType(t)} className={`px-3 py-1.5 rounded text-[10px] font-bold uppercase whitespace-nowrap transition ${filterType === t ? 'bg-white text-green-800 shadow-sm' : 'text-green-200 hover:bg-green-700'}`}>{t === 'ALL' ? 'Tutti' : (t === 'OFFER' ? 'Proposte' : (t === 'REQUEST' ? 'Richieste' : 'Chat'))}</button>
                     ))}
-                    {/* BOTTONE FULLSCREEN (NASCOSTO SU MOBILE) */}
                     <button onClick={toggleFullscreen} className="hidden md:flex ml-1 p-1.5 bg-green-800/80 hover:bg-green-600 rounded text-green-100 transition" title="Schermo Intero">
                         {isFullscreen ? <Minimize size={16} /> : <Maximize size={16} />}
                     </button>
@@ -403,19 +416,13 @@ function App() {
         </div>
       </div>
 
-      <div className="fixed bottom-0 left-0 right-0 p-4 bg-gradient-to-t from-white via-white to-transparent pt-10 flex gap-2 justify-center z-20 pointer-events-none items-end">
-          <button onClick={() => openCreationModal('REQUEST')} className="pointer-events-auto w-14 h-14 rounded-full bg-orange-500 text-white shadow-lg hover:bg-orange-600 active:scale-95 flex items-center justify-center border-2 border-white"><HelpCircle size={24} /></button>
-          <button onClick={() => openCreationModal('OFFER')} className="pointer-events-auto w-16 h-16 rounded-full bg-green-700 text-white shadow-xl hover:bg-green-800 active:scale-95 flex items-center justify-center border-2 border-white mb-1"><Box size={28} /></button>
-          <button onClick={() => openCreationModal('GENERIC')} className="pointer-events-auto w-14 h-14 rounded-full bg-purple-600 text-white shadow-lg hover:bg-purple-700 active:scale-95 flex items-center justify-center border-2 border-white"><MessagesSquare size={24} /></button>
-      </div>
-
       {isModalOpen && (
         <div className="fixed inset-0 bg-black/60 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4 backdrop-blur-sm animate-fade-in">
           <div className="bg-white w-full max-w-md rounded-t-3xl sm:rounded-3xl p-6 h-[85vh] sm:h-auto shadow-2xl flex flex-col animate-slide-up">
             <div className="flex justify-between items-center mb-4"><h2 className={`text-xl font-bold ${modalMode === 'REQUEST' ? 'text-orange-600' : (modalMode === 'GENERIC' ? 'text-purple-700' : 'text-green-700')}`}>{editingMatch ? 'Modifica' : (modalMode === 'REQUEST' ? 'Cerco Gioco' : (modalMode === 'GENERIC' ? 'Nuova Chat / Tema' : 'Proponi Tavolo'))}</h2><button onClick={() => setIsModalOpen(false)} className="p-2 bg-gray-100 rounded-full"><X size={20}/></button></div>
             <div className="space-y-5 flex-1 overflow-y-auto pb-4">
               <div className="relative"><label className="block text-sm font-bold text-gray-700 mb-2">{modalMode === 'GENERIC' ? 'Titolo Argomento (es. Party Game)' : (modalMode === 'REQUEST' ? 'Che gioco vorresti?' : 'A cosa giochiamo?')}</label><input type="text" placeholder="Scrivi..." className="w-full p-4 bg-gray-50 border rounded-xl text-lg outline-none focus:ring-2 focus:ring-green-500" value={gameName} onChange={(e) => setGameName(e.target.value)} autoFocus />{suggestions.length > 0 && <ul className="absolute z-50 left-0 right-0 mt-1 bg-white border border-gray-200 rounded-xl shadow-xl max-h-48 overflow-y-auto">{suggestions.map((g, i) => <li key={i} onClick={() => selectSuggestion(g)} className="p-3 border-b hover:bg-green-50 cursor-pointer">{g}</li>)}</ul>}</div>
-              {modalMode !== 'GENERIC' && ( <><div><label className="block text-sm font-bold text-gray-700 mb-2">Quando?</label><input type="text" value={whenTime} onChange={(e) => setWhenTime(e.target.value)} className="w-full p-3 mb-3 bg-white border border-green-500 text-green-800 font-bold rounded-xl text-center shadow-sm"/><div className="grid grid-cols-3 gap-2">{dynamicTimeOptions.map((opt, i) => (<button key={i} onClick={() => setWhenTime(opt.value)} className="p-2 bg-gray-100 border border-gray-200 rounded-lg text-xs font-medium hover:bg-green-100 hover:border-green-300 transition-colors"><div className="font-bold">{opt.label}</div><div className="text-[10px] text-gray-500">{opt.value.includes(' ') ? '' : opt.value}</div></button>))}</div></div><div className="grid grid-cols-2 gap-4"><div><label className="block text-sm font-bold text-gray-700 mb-2">Giocatori Max</label><div className="flex items-center border border-gray-200 rounded-xl bg-gray-50"><button onClick={() => setMaxPlayers(Math.max(2, maxPlayers-1))} className="px-4 py-3 hover:bg-gray-200 text-lg font-bold">-</button><input type="number" value={maxPlayers} readOnly className="w-full text-center bg-transparent font-bold"/><button onClick={() => setMaxPlayers(maxPlayers+1)} className="px-4 py-3 hover:bg-gray-200 text-lg font-bold">+</button></div></div><div><label className="block text-sm font-bold text-gray-700 mb-2">Tavolo</label>{modalMode === 'REQUEST' ? <div className="w-full p-3.5 bg-orange-50 border border-orange-200 rounded-xl text-orange-800 font-bold text-center text-sm">CERCASI</div> : <select className="w-full p-3.5 bg-gray-50 border border-gray-200 rounded-xl font-medium h-full" value={tableNr} onChange={(e) => setTableNr(e.target.value)}><option value="">Da definire</option>{[...Array(30)].map((_, i) => <option key={i} value={i+1}>Tavolo {i+1}</option>)}</select>}</div></div></> )}
+              {modalMode !== 'GENERIC' && ( <><div><label className="block text-sm font-bold text-gray-700 mb-2">Quando?</label><input type="text" value={whenTime} onChange={(e) => setWhenTime(e.target.value)} className="w-full p-3 mb-3 bg-white border border-green-500 text-green-800 font-bold rounded-xl text-center shadow-sm"/><div className="grid grid-cols-3 gap-2">{dynamicTimeOptions.map((opt, i) => (<button key={i} onClick={() => handleTimeSelect(opt)} className="p-2 bg-gray-100 border border-gray-200 rounded-lg text-xs font-medium hover:bg-green-100 hover:border-green-300 transition-colors"><div className="font-bold">{opt.label}</div><div className="text-[10px] text-gray-500">{opt.valueText}</div></button>))}</div></div><div className="grid grid-cols-2 gap-4"><div><label className="block text-sm font-bold text-gray-700 mb-2">Giocatori Max</label><div className="flex items-center border border-gray-200 rounded-xl bg-gray-50"><button onClick={() => setMaxPlayers(Math.max(2, maxPlayers-1))} className="px-4 py-3 hover:bg-gray-200 text-lg font-bold">-</button><input type="number" value={maxPlayers} readOnly className="w-full text-center bg-transparent font-bold"/><button onClick={() => setMaxPlayers(maxPlayers+1)} className="px-4 py-3 hover:bg-gray-200 text-lg font-bold">+</button></div></div><div><label className="block text-sm font-bold text-gray-700 mb-2">Tavolo</label>{modalMode === 'REQUEST' ? <div className="w-full p-3.5 bg-orange-50 border border-orange-200 rounded-xl text-orange-800 font-bold text-center text-sm">CERCASI</div> : <select className="w-full p-3.5 bg-gray-50 border border-gray-200 rounded-xl font-medium h-full" value={tableNr} onChange={(e) => setTableNr(e.target.value)}><option value="">Da definire</option>{[...Array(30)].map((_, i) => <option key={i} value={i+1}>Tavolo {i+1}</option>)}</select>}</div></div></> )}
               <div><label className="block text-sm font-bold text-gray-700 mb-2">Note / Info</label><input type="text" placeholder="Note opzionali..." className="w-full p-3 bg-gray-50 border border-gray-200 rounded-xl text-sm outline-none focus:border-green-500" value={notes} onChange={(e) => setNotes(e.target.value)}/></div>
               <div className="pt-2 mt-auto"><button onClick={saveMatch} className={`w-full text-white font-bold py-4 rounded-2xl shadow-xl text-lg active:scale-95 ${modalMode === 'REQUEST' ? 'bg-orange-500' : (modalMode === 'GENERIC' ? 'bg-purple-600' : 'bg-green-700')}`}>{editingMatch ? 'Salva' : 'Pubblica'}</button></div>
             </div>
