@@ -19,7 +19,7 @@ function App() {
   const [isChatOpen, setIsChatOpen] = useState(false)   
   const [modalMode, setModalMode] = useState('OFFER') 
   const [editingMatch, setEditingMatch] = useState(null)
-  const [isSubmitting, setIsSubmitting] = useState(false) // Previene doppi click
+  const [isSubmitting, setIsSubmitting] = useState(false) 
 
   // Filtri
   const [searchTerm, setSearchTerm] = useState('')
@@ -161,7 +161,7 @@ function App() {
       if (!error) setChatMessages(data) 
   }
 
-  // --- LOGIN & LOGOUT (PROFILO MINIMALE) ---
+  // --- LOGIN & LOGOUT ---
   const handleLogin = (e) => {
     e.preventDefault(); const name = e.target.username.value.trim();
     if (name) { localStorage.setItem('bg_user', name); setCurrentUser(name); if ("Notification" in window && Notification.permission !== "granted") { Notification.requestPermission(); } }
@@ -339,7 +339,6 @@ function App() {
       <div className="bg-white px-4 py-2 border-b border-gray-100 flex justify-between items-center text-xs text-gray-500 max-w-7xl mx-auto w-full">
         <div className="flex items-center gap-2">
             <span>Ciao, <b className="text-green-700">{currentUser}</b></span>
-            {/* TASTO LOGOUT / MODIFICA NICKNAME */}
             <button onClick={handleLogout} className="p-1 bg-gray-100 rounded-full hover:bg-gray-200 text-gray-500 transition border border-gray-200" title="Cambia Nickname / Esci">
                 <UserCog size={14} />
             </button>
@@ -425,6 +424,13 @@ function App() {
             )
             })}
         </div>
+      </div>
+
+      {/* QUI CI SONO I BOTTONI GALLEGGIANTI CHE MANCAVANO! */}
+      <div className="fixed bottom-0 left-0 right-0 p-4 bg-gradient-to-t from-white via-white to-transparent pt-10 flex gap-2 justify-center z-20 pointer-events-none items-end">
+          <button onClick={() => openCreationModal('REQUEST')} className="pointer-events-auto w-14 h-14 rounded-full bg-orange-500 text-white shadow-lg hover:bg-orange-600 active:scale-95 flex items-center justify-center border-2 border-white"><HelpCircle size={24} /></button>
+          <button onClick={() => openCreationModal('OFFER')} className="pointer-events-auto w-16 h-16 rounded-full bg-green-700 text-white shadow-xl hover:bg-green-800 active:scale-95 flex items-center justify-center border-2 border-white mb-1"><Box size={28} /></button>
+          <button onClick={() => openCreationModal('GENERIC')} className="pointer-events-auto w-14 h-14 rounded-full bg-purple-600 text-white shadow-lg hover:bg-purple-700 active:scale-95 flex items-center justify-center border-2 border-white"><MessagesSquare size={24} /></button>
       </div>
 
       {isModalOpen && (
